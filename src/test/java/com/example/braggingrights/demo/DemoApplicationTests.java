@@ -73,22 +73,24 @@ public class DemoApplicationTests {
         });
 
         vectorStore.add(docs);
+        sayingToEssay.forEach(this::retrieveAndGuess);
+    }
 
-        sayingToEssay.forEach((saying, essay) -> {
-            var retrievedEssay = vectorStore
-					.similaritySearch(
-							SearchRequest
-									.query(saying)
-					)
-					.getFirst()
-					.toString();
+    private void retrieveAndGuess(String saying, String essay) {
+        var retrievedEssay = vectorStore
+                .similaritySearch(
+                        SearchRequest
+                                .query(saying)
+                )
+                .getFirst()
+                .toString();
 
-            var guess = callama("The essay on the next lines was generated from a famous one-phrase saying. Can you please tell me what is the saying that the essay is based on? Give me the saying only and nothing else. \n" + retrievedEssay);
+        System.out.println("saying:" + saying);
+        System.out.println("guess:" +
+                callama("The essay on the next lines was generated from a famous one-phrase saying. Can you please tell me what is the saying that the essay is based on? Give me the saying only and nothing else. \n" + retrievedEssay));
 
-            System.out.println("Initial saying:" + saying);
-			System.out.println("Clean guess:" + guess);
-			System.out.println(essay.equals(retrievedEssay));
-		});
+        System.out.println("essay:" + essay);
+        System.out.println("retrieved essay:" + retrievedEssay);
     }
 
     private static String createPrompt(List<String> sayingsSet) {
