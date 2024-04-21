@@ -1,7 +1,8 @@
 package com.example.braggingrights.demo;
 
 import lombok.extern.slf4j.Slf4j;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
@@ -39,7 +40,6 @@ import static java.util.stream.IntStream.range;
 public class DemoApplicationTests {
 
     private static final String POSTGRES = "postgres";
-    private static final String LLAMA3 = "llama3";
     private static final String EMBEDDING_MODEL = "nomic-embed-text";
 
     @Container
@@ -67,21 +67,22 @@ public class DemoApplicationTests {
     @Value("classpath:/guess-saying.st")
     protected Resource guessSaying;
 
-    @Test
-    void rag_workflow() {
+    @ParameterizedTest
+    @ValueSource(strings = {"llama3", "llama2", "gemma", "mistral"})
+    void rag_workflow(String model) {
         var sayings = new ArrayList<String>();
         var sayingToEssay = new HashMap<String, String>();
         var documents = new ArrayList<Document>();
 
-        pullModels();
+        pullModels(model);
 
         range(1, 5).forEach(i -> extractContentBetweenQuotes(
-                callama(generateSaying, Map.of("sayings", sayings)))
+                callama(generateSaying, Map.of("sayings", sayings), model))
                 .ifPresent(sayings::add)
         );
 
         sayings.forEach(saying -> {
-            var essay = callama(generateEssay, Map.of("saying", saying))
+            var essay = callama(generateEssay, Map.of("saying", saying), model)
                     .replaceAll(saying, "");
 
             documents.add(new Document(essay));
@@ -93,12 +94,12 @@ public class DemoApplicationTests {
         sayingToEssay.forEach((saying, essay) -> {
             log.info("""
                     saying: %s""".formatted(saying));
-            retrieveAndGuess(saying).ifPresent(guess -> log.info("""
+            retrieveAndGuess(saying, model).ifPresent(guess -> log.info("""
                     guess: %s""".formatted(guess)));
         });
     }
 
-    private Optional<String> retrieveAndGuess(String saying) {
+    private Optional<String> retrieveAndGuess(String saying, String model) {
         var retrievedEssay = vectorStore
                 .similaritySearch(
                         SearchRequest
@@ -106,12 +107,12 @@ public class DemoApplicationTests {
                 )
                 .getFirst()
                 .toString();
-        return extractContentBetweenQuotes(callama(guessSaying, Map.of("essay", retrievedEssay)));
+        return extractContentBetweenQuotes(callama(guessSaying, Map.of("essay", retrievedEssay), model));
     }
 
-    private static void pullModels() {
+    private static void pullModels(String model) {
         try {
-            ollama.execInContainer("ollama", "pull", LLAMA3);
+            ollama.execInContainer("ollama", "pull", model);
             ollama.execInContainer("ollama", "pull", EMBEDDING_MODEL);
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
@@ -126,7 +127,7 @@ public class DemoApplicationTests {
         return m.find() ? Optional.of(m.group(1)) : empty();
     }
 
-    private String callama(Resource promptTemplate, Map<String, Object> promptTemplateValues) {
+    private String callama(Resource promptTemplate, Map<String, Object> promptTemplateValues, String model) {
         Object templateValue = promptTemplateValues.values().iterator().next();
 
         templateValue = switch (templateValue) {
@@ -138,7 +139,7 @@ public class DemoApplicationTests {
         return ollamaChatClient
                 .withDefaultOptions(OllamaOptions
                         .create()
-                        .withModel(LLAMA3)
+                        .withModel(model)
                 )
                 .call(
                         new Prompt(
