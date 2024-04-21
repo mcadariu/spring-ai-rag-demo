@@ -1,13 +1,16 @@
 package com.example.braggingrights.demo;
 
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.ollama.OllamaChatClient;
 import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -16,11 +19,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.ollama.OllamaContainer;
+import org.springframework.core.io.Resource;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -30,9 +35,12 @@ import static java.util.stream.IntStream.range;
 
 @Testcontainers
 @SpringBootTest
+@Slf4j
 public class DemoApplicationTests {
 
-    public static final String POSTGRES = "postgres";
+    private static final String POSTGRES = "postgres";
+    private static final String LLAMA3 = "llama3";
+    private static final String EMBEDDING_MODEL = "nomic-embed-text";
 
     @Container
     private static final OllamaContainer ollama = new OllamaContainer("ollama/ollama:latest");
@@ -50,33 +58,47 @@ public class DemoApplicationTests {
     @Autowired
     private OllamaChatClient ollamaChatClient;
 
+    @Value("classpath:/generate-essay.st")
+    protected Resource generateEssay;
+
+    @Value("classpath:/generate-saying.st")
+    protected Resource generateSaying;
+
+    @Value("classpath:/guess-saying.st")
+    protected Resource guessSaying;
+
     @Test
     void rag_workflow() {
+        var sayings = new ArrayList<String>();
+        var sayingToEssay = new HashMap<String, String>();
+        var documents = new ArrayList<Document>();
+
         pullModels();
 
-        var sayings = new ArrayList<String>();
-
-        range(1, 10).forEach(i ->
-                extractContentBetweenQuotes(
-                        callama(createPrompt(sayings))
-                ).ifPresent(sayings::add));
-
-        var sayingToEssay = new HashMap<String, String>();
-        var docs = new ArrayList<Document>();
+        range(1, 5).forEach(i -> extractContentBetweenQuotes(
+                callama(generateSaying, Map.of("sayings", sayings)))
+                .ifPresent(sayings::add)
+        );
 
         sayings.forEach(saying -> {
-            var essay = callama("Write a short essay under 200 words explaining the meaning of the following saying: " + saying)
+            var essay = callama(generateEssay, Map.of("saying", saying))
                     .replaceAll(saying, "");
 
-            docs.add(new Document(essay));
+            documents.add(new Document(essay));
             sayingToEssay.put(saying, essay);
         });
 
-        vectorStore.add(docs);
-        sayingToEssay.forEach(this::retrieveAndGuess);
+        vectorStore.add(documents);
+
+        sayingToEssay.forEach((saying, essay) -> {
+            log.info("""
+                    saying: %s""".formatted(saying));
+            retrieveAndGuess(saying).ifPresent(guess -> log.info("""
+                    guess: %s""".formatted(guess)));
+        });
     }
 
-    private void retrieveAndGuess(String saying, String essay) {
+    private Optional<String> retrieveAndGuess(String saying) {
         var retrievedEssay = vectorStore
                 .similaritySearch(
                         SearchRequest
@@ -84,27 +106,13 @@ public class DemoApplicationTests {
                 )
                 .getFirst()
                 .toString();
-
-        System.out.println("saying:" + saying);
-        System.out.println("guess:" +
-                callama("The essay on the next lines was generated from a famous one-phrase saying. Can you please tell me what is the saying that the essay is based on? Give me the saying only and nothing else. \n" + retrievedEssay));
-
-        System.out.println("essay:" + essay);
-        System.out.println("retrieved essay:" + retrievedEssay);
-    }
-
-    private static String createPrompt(List<String> sayingsSet) {
-        StringBuilder prompt = new StringBuilder("Give me a one-phrase short random saying containing life advice. Do not include the author. Do not give me any of these options: \n");
-        for (String saying : sayingsSet) {
-            prompt.append("* \"").append(saying).append("\"\n");
-        }
-        return prompt.toString();
+        return extractContentBetweenQuotes(callama(guessSaying, Map.of("essay", retrievedEssay)));
     }
 
     private static void pullModels() {
         try {
-            ollama.execInContainer("ollama", "pull", "llama3");
-            ollama.execInContainer("ollama", "pull", "nomic-embed-text");
+            ollama.execInContainer("ollama", "pull", LLAMA3);
+            ollama.execInContainer("ollama", "pull", EMBEDDING_MODEL);
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -112,16 +120,34 @@ public class DemoApplicationTests {
 
     private Optional<String> extractContentBetweenQuotes(String input) {
         Matcher m = Pattern
-                .compile("\"(.*).\"")
+                .compile("\"(.*)\\.?\"")
                 .matcher(input);
 
         return m.find() ? Optional.of(m.group(1)) : empty();
     }
 
-    private String callama(String prompt) {
+    private String callama(Resource promptTemplate, Map<String, Object> promptTemplateValues) {
+        Object templateValue = promptTemplateValues.values().iterator().next();
+
+        templateValue = switch (templateValue) {
+            case String value -> value;
+            case List list -> String.join("\n * ", list);
+            default -> templateValue;
+        };
+
         return ollamaChatClient
-                .withDefaultOptions(OllamaOptions.create().withModel("llama3"))
-                .call(new Prompt(prompt))
+                .withDefaultOptions(OllamaOptions
+                        .create()
+                        .withModel(LLAMA3)
+                )
+                .call(
+                        new Prompt(
+                                new PromptTemplate(promptTemplate,
+                                        Map.of(promptTemplateValues.keySet().iterator().next(),
+                                                templateValue)
+                                )
+                                        .createMessage())
+                )
                 .getResult()
                 .getOutput()
                 .getContent();
@@ -130,7 +156,7 @@ public class DemoApplicationTests {
     @DynamicPropertySource
     static void ollamaProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.ai.ollama.base-url", ollama::getEndpoint);
-        registry.add("spring.ai.ollama.embedding.options.model", () -> "nomic-embed-text");
+        registry.add("spring.ai.ollama.embedding.options.model", () -> EMBEDDING_MODEL);
     }
 
     @DynamicPropertySource

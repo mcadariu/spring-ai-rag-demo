@@ -1,0 +1,1 @@
+Write a short essay under 200 words explaining the meaning of the following saying: {saying}.
