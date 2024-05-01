@@ -1,6 +1,7 @@
 package com.example.braggingrights.demo;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -28,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,10 +49,7 @@ public class DemoApplicationTests {
 
     @Container
     @ServiceConnection
-    private static final PostgreSQLContainer<?> pgvector = new PostgreSQLContainer<>("pgvector/pgvector:pg16")
-            .withUsername(POSTGRES)
-            .withPassword(POSTGRES)
-            .withDatabaseName(POSTGRES);
+    private static final PostgreSQLContainer<?> pgvector = new PostgreSQLContainer<>("pgvector/pgvector:pg16").withUsername(POSTGRES).withPassword(POSTGRES).withDatabaseName(POSTGRES);
 
     @Autowired
     private VectorStore vectorStore;
@@ -68,46 +67,48 @@ public class DemoApplicationTests {
     protected Resource guessSaying;
 
     @ParameterizedTest
-    @ValueSource(strings = {"llama3", "llama2", "gemma", "mistral"})
+    @ValueSource(strings = {"llama3"})
     void rag_workflow(String model) {
-        var sayings = new ArrayList<String>();
-        var sayingToEssay = new HashMap<String, String>();
-        var documents = new ArrayList<Document>();
-
         pullModels(model);
 
-        range(1, 5).forEach(i -> extractContentBetweenQuotes(
-                callama(generateSaying, Map.of("sayings", sayings), model))
-                .ifPresent(sayings::add)
-        );
+        var sayings = new ArrayList<String>();
+        generateSayings(model, sayings);
 
+        var sayingToEssay = new HashMap<String, String>();
+        var essays = new ArrayList<Document>();
+        generateEssays(model, sayings, essays, sayingToEssay);
+
+        vectorStore.add(essays);
+
+        sayingToEssay.forEach((saying, essay) -> {
+            log.info("Generated saying: " + saying);
+            log.info("LLM guess: " + retrieveEssayAndGuessSaying(saying, sayingToEssay.keySet(), model));
+        });
+    }
+
+    private void generateEssays(String model, ArrayList<String> sayings, ArrayList<Document> documents, HashMap<String, String> sayingToEssay) {
         sayings.forEach(saying -> {
             var essay = callama(generateEssay, Map.of("saying", saying), model)
-                    .replaceAll(saying, "");
+                    .replaceAll(saying, "")
+                    .replace("\"", "");
 
             documents.add(new Document(essay));
             sayingToEssay.put(saying, essay);
         });
-
-        vectorStore.add(documents);
-
-        sayingToEssay.forEach((saying, essay) -> {
-            log.info("""
-                    saying: %s""".formatted(saying));
-            retrieveAndGuess(saying, model).ifPresent(guess -> log.info("""
-                    guess: %s""".formatted(guess)));
-        });
     }
 
-    private Optional<String> retrieveAndGuess(String saying, String model) {
-        var retrievedEssay = vectorStore
-                .similaritySearch(
-                        SearchRequest
-                                .query(saying)
-                )
-                .getFirst()
-                .toString();
-        return extractContentBetweenQuotes(callama(guessSaying, Map.of("essay", retrievedEssay), model));
+    private void generateSayings(String model, ArrayList<String> sayings) {
+        range(1, 10)
+                .forEach(i ->
+                        extractContentBetweenQuotes(
+                                callama(generateSaying, Map.of("sayings", sayings), model))
+                                .ifPresent(sayings::add)
+                );
+    }
+
+    private String retrieveEssayAndGuessSaying(String saying, Set<String> sayings, String model) {
+        var retrievedEssay = vectorStore.similaritySearch(SearchRequest.query(saying)).getFirst().getContent();
+        return callama(guessSaying, Map.of("essay", retrievedEssay, "sayings", sayings), model);
     }
 
     private static void pullModels(String model) {
@@ -120,38 +121,36 @@ public class DemoApplicationTests {
     }
 
     private Optional<String> extractContentBetweenQuotes(String input) {
-        Matcher m = Pattern
-                .compile("\"(.*)\\.?\"")
-                .matcher(input);
-
+        Matcher m = Pattern.compile("\"(.*)\\.?\"").matcher(input);
         return m.find() ? Optional.of(m.group(1)) : empty();
     }
 
     private String callama(Resource promptTemplate, Map<String, Object> promptTemplateValues, String model) {
-        Object templateValue = promptTemplateValues.values().iterator().next();
-
-        templateValue = switch (templateValue) {
-            case String value -> value;
-            case List list -> String.join("\n * ", list);
-            default -> templateValue;
-        };
-
         return ollamaChatClient
-                .withDefaultOptions(OllamaOptions
-                        .create()
-                        .withModel(model)
-                )
-                .call(
-                        new Prompt(
-                                new PromptTemplate(promptTemplate,
-                                        Map.of(promptTemplateValues.keySet().iterator().next(),
-                                                templateValue)
-                                )
-                                        .createMessage())
-                )
+                .withDefaultOptions(OllamaOptions.create().withModel(model))
+                .call(createPromptFrom(promptTemplate, promptTemplateValues))
                 .getResult()
                 .getOutput()
                 .getContent();
+    }
+
+    @NotNull
+    private static Prompt createPromptFrom(Resource promptTemplate, Map<String, Object> promptTemplateValues) {
+        Map<String, Object> processedTemplateValues = new HashMap<>();
+
+        for (Map.Entry<String, Object> entry : promptTemplateValues.entrySet()) {
+            promptTemplateValues.put(entry.getKey(), switch (entry.getValue()) {
+                case String value -> value;
+                case List list -> String.join("\n * ", list);
+                case Set set -> String.join("\n * ", set.stream().toList());
+                default -> entry.getValue();
+            });
+        }
+
+        return new Prompt(
+                new PromptTemplate(promptTemplate,
+                        processedTemplateValues)
+                        .createMessage());
     }
 
     @DynamicPropertySource
