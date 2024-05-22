@@ -49,7 +49,10 @@ public class DemoApplicationTests {
 
     @Container
     @ServiceConnection
-    private static final PostgreSQLContainer<?> pgvector = new PostgreSQLContainer<>("pgvector/pgvector:pg16").withUsername(POSTGRES).withPassword(POSTGRES).withDatabaseName(POSTGRES);
+    private static final PostgreSQLContainer<?> pgvector = new PostgreSQLContainer<>("pgvector/pgvector:pg16")
+            .withUsername(POSTGRES)
+            .withPassword(POSTGRES)
+            .withDatabaseName(POSTGRES);
 
     @Autowired
     private VectorStore vectorStore;
