@@ -7,18 +7,15 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.ollama.OllamaChatClient;
-import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.ollama.OllamaContainer;
 import org.springframework.core.io.Resource;
@@ -38,27 +35,20 @@ import static java.util.stream.IntStream.range;
 
 @Testcontainers
 @SpringBootTest
+@Import(RagDemoApplicationConfiguration.class)
 @Slf4j
-public class DemoApplicationTests {
+public class RAGDemoApplicationTests {
 
-    private static final String POSTGRES = "postgres";
     private static final String EMBEDDING_MODEL = "nomic-embed-text";
-
-    @Container
-    private static final OllamaContainer ollama = new OllamaContainer("ollama/ollama:latest");
-
-    @Container
-    @ServiceConnection
-    private static final PostgreSQLContainer<?> pgvector = new PostgreSQLContainer<>("pgvector/pgvector:pg16")
-            .withUsername(POSTGRES)
-            .withPassword(POSTGRES)
-            .withDatabaseName(POSTGRES);
 
     @Autowired
     private VectorStore vectorStore;
 
     @Autowired
-    private OllamaChatClient ollamaChatClient;
+    private OllamaChatModel chatClient;
+
+    @Autowired
+    private OllamaContainer ollama;
 
     @Value("classpath:/generate-essay.st")
     protected Resource generateEssay;
@@ -79,6 +69,7 @@ public class DemoApplicationTests {
 
         var sayingToEssay = new HashMap<String, String>();
         var essays = new ArrayList<Document>();
+
         generateEssays(model, sayings, essays, sayingToEssay);
 
         vectorStore.add(essays);
@@ -114,7 +105,7 @@ public class DemoApplicationTests {
         return callama(guessSaying, Map.of("essay", retrievedEssay, "sayings", sayings), model);
     }
 
-    private static void pullModels(String model) {
+    private void pullModels(String model) {
         try {
             ollama.execInContainer("ollama", "pull", model);
             ollama.execInContainer("ollama", "pull", EMBEDDING_MODEL);
@@ -128,10 +119,10 @@ public class DemoApplicationTests {
         return m.find() ? Optional.of(m.group(1)) : empty();
     }
 
-    private String callama(Resource promptTemplate, Map<String, Object> promptTemplateValues, String model) {
-        return ollamaChatClient
-                .withDefaultOptions(OllamaOptions.create().withModel(model))
-                .call(createPromptFrom(promptTemplate, promptTemplateValues))
+    private String callama(Resource prompt, Map<String, Object> values, String model) {
+        return this.chatClient
+                .withModel(model)
+                .call(createPromptFrom(prompt, values))
                 .getResult()
                 .getOutput()
                 .getContent();
@@ -142,7 +133,7 @@ public class DemoApplicationTests {
         Map<String, Object> processedTemplateValues = new HashMap<>();
 
         for (Map.Entry<String, Object> entry : promptTemplateValues.entrySet()) {
-            promptTemplateValues.put(entry.getKey(), switch (entry.getValue()) {
+            processedTemplateValues.put(entry.getKey(), switch (entry.getValue()) {
                 case String value -> value;
                 case List list -> String.join("\n * ", list);
                 case Set set -> String.join("\n * ", set.stream().toList());
@@ -158,7 +149,6 @@ public class DemoApplicationTests {
 
     @DynamicPropertySource
     static void ollamaProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.ai.ollama.base-url", ollama::getEndpoint);
         registry.add("spring.ai.ollama.embedding.options.model", () -> EMBEDDING_MODEL);
     }
 
