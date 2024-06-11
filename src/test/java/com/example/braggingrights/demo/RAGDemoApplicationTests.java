@@ -41,6 +41,18 @@ public class RAGDemoApplicationTests {
 
     private static final String EMBEDDING_MODEL = "nomic-embed-text";
 
+    @Value("classpath:/generate-essay.st")
+    protected Resource generateEssay;
+    public static final String SAYING_PARAMETER_NAME = "saying";
+
+    @Value("classpath:/generate-saying.st")
+    protected Resource generateSaying;
+    public static final String SAYINGS_PARAMETER_NAME = "sayings";
+
+    @Value("classpath:/guess-saying.st")
+    protected Resource guessSaying;
+    public static final String ESSAY_PARAMETER_NAME = "essay";
+
     @Autowired
     private VectorStore vectorStore;
 
@@ -50,18 +62,9 @@ public class RAGDemoApplicationTests {
     @Autowired
     private OllamaContainer ollama;
 
-    @Value("classpath:/generate-essay.st")
-    protected Resource generateEssay;
-
-    @Value("classpath:/generate-saying.st")
-    protected Resource generateSaying;
-
-    @Value("classpath:/guess-saying.st")
-    protected Resource guessSaying;
-
     @ParameterizedTest
     @ValueSource(strings = {"llama3"})
-    void rag_workflow(String model) {
+    void RAG_workflow(String model) {
         pullModels(model);
 
         var sayings = new ArrayList<String>();
@@ -69,7 +72,6 @@ public class RAGDemoApplicationTests {
 
         var sayingToEssay = new HashMap<String, String>();
         var essays = new ArrayList<Document>();
-
         generateEssays(model, sayings, essays, sayingToEssay);
 
         vectorStore.add(essays);
@@ -82,7 +84,7 @@ public class RAGDemoApplicationTests {
 
     private void generateEssays(String model, ArrayList<String> sayings, ArrayList<Document> documents, HashMap<String, String> sayingToEssay) {
         sayings.forEach(saying -> {
-            var essay = callama(generateEssay, Map.of("saying", saying), model)
+            var essay = callama(generateEssay, Map.of(SAYING_PARAMETER_NAME, saying), model)
                     .replaceAll(saying, "")
                     .replace("\"", "");
 
@@ -95,14 +97,14 @@ public class RAGDemoApplicationTests {
         range(1, 10)
                 .forEach(i ->
                         extractContentBetweenQuotes(
-                                callama(generateSaying, Map.of("sayings", sayings), model))
+                                callama(generateSaying, Map.of(SAYINGS_PARAMETER_NAME, sayings), model))
                                 .ifPresent(sayings::add)
                 );
     }
 
     private String retrieveEssayAndGuessSaying(String saying, Set<String> sayings, String model) {
         var retrievedEssay = vectorStore.similaritySearch(SearchRequest.query(saying)).getFirst().getContent();
-        return callama(guessSaying, Map.of("essay", retrievedEssay, "sayings", sayings), model);
+        return callama(guessSaying, Map.of(ESSAY_PARAMETER_NAME, retrievedEssay, SAYINGS_PARAMETER_NAME, sayings), model);
     }
 
     private void pullModels(String model) {
@@ -132,14 +134,13 @@ public class RAGDemoApplicationTests {
     private static Prompt createPromptFrom(Resource promptTemplate, Map<String, Object> promptTemplateValues) {
         Map<String, Object> processedTemplateValues = new HashMap<>();
 
-        for (Map.Entry<String, Object> entry : promptTemplateValues.entrySet()) {
-            processedTemplateValues.put(entry.getKey(), switch (entry.getValue()) {
-                case String value -> value;
+        promptTemplateValues.forEach((key, v) -> {
+            processedTemplateValues.put(key, switch (v) {
                 case List list -> String.join("\n * ", list);
                 case Set set -> String.join("\n * ", set.stream().toList());
-                default -> entry.getValue();
+                default -> v;
             });
-        }
+        });
 
         return new Prompt(
                 new PromptTemplate(promptTemplate,

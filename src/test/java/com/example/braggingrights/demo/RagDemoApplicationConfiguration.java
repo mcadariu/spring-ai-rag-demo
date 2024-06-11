@@ -7,7 +7,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.ollama.OllamaContainer;
 
 @TestConfiguration(proxyBeanMethods = false)
-public class RagDemoApplicationConfiguration {
+class RagDemoApplicationConfiguration {
     private static final String POSTGRES = "postgres";
 
     @Bean
