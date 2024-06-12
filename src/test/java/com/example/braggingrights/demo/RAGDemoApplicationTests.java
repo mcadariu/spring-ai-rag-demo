@@ -21,6 +21,8 @@ import org.testcontainers.ollama.OllamaContainer;
 import org.springframework.core.io.Resource;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -53,7 +55,7 @@ public class RAGDemoApplicationTests {
     protected Resource guessSaying;
     public static final String ESSAY_PARAMETER_NAME = "essay";
 
-    @Autowired
+    @Autowired§
     private VectorStore vectorStore;
 
     @Autowired
@@ -74,7 +76,10 @@ public class RAGDemoApplicationTests {
         var essays = new ArrayList<Document>();
         generateEssays(model, sayings, essays, sayingToEssay);
 
+        Instant before = Instant.now();
         vectorStore.add(essays);
+        Instant after = Instant.now();
+        log.info("storing the vector documents:" + Duration.between(before, after).toMillis());
 
         sayingToEssay.forEach((saying, essay) -> {
             log.info("Generated saying: " + saying);
@@ -103,8 +108,15 @@ public class RAGDemoApplicationTests {
     }
 
     private String retrieveEssayAndGuessSaying(String saying, Set<String> sayings, String model) {
+        Instant before = Instant.now();
         var retrievedEssay = vectorStore.similaritySearch(SearchRequest.query(saying)).getFirst().getContent();
-        return callama(guessSaying, Map.of(ESSAY_PARAMETER_NAME, retrievedEssay, SAYINGS_PARAMETER_NAME, sayings), model);
+        Instant after = Instant.now();
+        log.info("performing similarity search" + Duration.between(before, after).toMillis());
+
+        return callama(guessSaying,
+                Map.of(ESSAY_PARAMETER_NAME, retrievedEssay, SAYINGS_PARAMETER_NAME, sayings),
+                model
+        );
     }
 
     private void pullModels(String model) {
