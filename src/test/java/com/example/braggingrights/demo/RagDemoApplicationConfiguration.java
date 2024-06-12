@@ -16,7 +16,8 @@ class RagDemoApplicationConfiguration {
         return new PostgreSQLContainer<>("pgvector/pgvector:pg16")
                 .withUsername(POSTGRES)
                 .withPassword(POSTGRES)
-                .withDatabaseName(POSTGRES);
+                .withDatabaseName(POSTGRES)
+                .withInitScript("init-script.sql");
     }
 
     @Bean
