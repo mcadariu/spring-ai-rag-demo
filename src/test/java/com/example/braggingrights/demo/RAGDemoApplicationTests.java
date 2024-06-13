@@ -82,8 +82,6 @@ public class RAGDemoApplicationTests {
             log.info("Generated saying: " + saying);
             log.info("LLM guess: " + retrieveEssayAndGuessSaying(saying, sayingToEssay.keySet(), model));
         });
-
-        while(true) { }
     }
 
     private void generateEssays(String model, ArrayList<String> sayings, ArrayList<Document> documents, HashMap<String, String> sayingToEssay) {
