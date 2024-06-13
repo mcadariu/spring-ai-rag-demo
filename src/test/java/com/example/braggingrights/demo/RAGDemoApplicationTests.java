@@ -55,11 +55,11 @@ public class RAGDemoApplicationTests {
     protected Resource guessSaying;
     public static final String ESSAY_PARAMETER_NAME = "essay";
 
-    @Autowired§
+    @Autowired
     private VectorStore vectorStore;
 
     @Autowired
-    private OllamaChatModel chatClient;
+    private OllamaChatModel chatModel;
 
     @Autowired
     private OllamaContainer ollama;
@@ -85,6 +85,8 @@ public class RAGDemoApplicationTests {
             log.info("Generated saying: " + saying);
             log.info("LLM guess: " + retrieveEssayAndGuessSaying(saying, sayingToEssay.keySet(), model));
         });
+
+        while(true) { }
     }
 
     private void generateEssays(String model, ArrayList<String> sayings, ArrayList<Document> documents, HashMap<String, String> sayingToEssay) {
@@ -134,7 +136,7 @@ public class RAGDemoApplicationTests {
     }
 
     private String callama(Resource prompt, Map<String, Object> values, String model) {
-        return this.chatClient
+        return this.chatModel
                 .withModel(model)
                 .call(createPromptFrom(prompt, values))
                 .getResult()
