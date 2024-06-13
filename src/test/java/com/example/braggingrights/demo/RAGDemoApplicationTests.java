@@ -21,8 +21,6 @@ import org.testcontainers.ollama.OllamaContainer;
 import org.springframework.core.io.Resource;
 
 import java.io.IOException;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -105,10 +103,7 @@ public class RAGDemoApplicationTests {
     }
 
     private String retrieveEssayAndGuessSaying(String saying, Set<String> sayings, String model) {
-        Instant before = Instant.now();
         var retrievedEssay = vectorStore.similaritySearch(SearchRequest.query(saying)).getFirst().getContent();
-        Instant after = Instant.now();
-        log.info("performing similarity search" + Duration.between(before, after).toMillis());
 
         return callama(guessSaying,
                 Map.of(ESSAY_PARAMETER_NAME, retrievedEssay, SAYINGS_PARAMETER_NAME, sayings),
