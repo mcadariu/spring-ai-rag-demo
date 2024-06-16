@@ -55,7 +55,7 @@ public class RAGDemoApplicationTests {
     protected Resource guessSaying;
     public static final String ESSAY_PARAMETER_NAME = "essay";
 
-    @Autowired§
+    @Autowired
     private VectorStore vectorStore;
 
     @Autowired

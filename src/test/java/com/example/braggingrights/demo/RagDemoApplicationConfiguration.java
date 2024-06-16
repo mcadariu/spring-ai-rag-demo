@@ -5,6 +5,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Bean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.ollama.OllamaContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @TestConfiguration(proxyBeanMethods = false)
 class RagDemoApplicationConfiguration {
@@ -13,7 +14,10 @@ class RagDemoApplicationConfiguration {
     @Bean
     @ServiceConnection
     PostgreSQLContainer<?> postgreSQLContainer() {
-        return new PostgreSQLContainer<>("pgvector/pgvector:pg16")
+        return new PostgreSQLContainer<>(DockerImageName
+                .parse("timescale/timescaledb-ha:pg16-all")
+                .asCompatibleSubstituteFor("postgres")
+        )
                 .withUsername(POSTGRES)
                 .withPassword(POSTGRES)
                 .withDatabaseName(POSTGRES)
