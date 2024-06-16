@@ -16,8 +16,7 @@ class RagDemoApplicationConfiguration {
     PostgreSQLContainer<?> postgreSQLContainer() {
         return new PostgreSQLContainer<>(DockerImageName
                 .parse("timescale/timescaledb-ha:pg16-all")
-                .asCompatibleSubstituteFor("postgres")
-        )
+                .asCompatibleSubstituteFor("postgres"))
                 .withUsername(POSTGRES)
                 .withPassword(POSTGRES)
                 .withDatabaseName(POSTGRES)
